@@ -1,0 +1,7 @@
+gasgiant
+src/*.o
+tests/test_cubesphere
+tests/test_noise
+tests/test_poisson
+tests/test_flow
+out/
