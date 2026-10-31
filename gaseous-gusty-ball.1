@@ -1,0 +1,286 @@
+.TH GASEOUS-GUSTY-BALL 1 "October 2026" "gaseous-gusty-ball" "User Commands"
+.SH NAME
+gaseous-gusty-ball \- computational fluid dynamics on a sphere for generating gas-giant cubemap textures
+.SH SYNOPSIS
+.B gaseous-gusty-ball
+.B \-i
+.I input.png
+.RI [ options ]
+.SH DESCRIPTION
+.B gaseous-gusty-ball
+simulates 2D incompressible fluid flow on the surface of a unit sphere, advects
+colored tracer particles through the evolving velocity field, and renders their
+fading, alpha-blended motion trails into six cubemap face images suitable for
+planet rendering in games or animations.
+.PP
+At initialization, particles are distributed evenly across the sphere using a
+Fibonacci spiral lattice. Each particle's permanent RGBA color is sampled from
+the input PNG image via an equirectangular projection: the image width wraps
+360 degrees around the equator (longitude) and the image height runs from the
+north pole (top row) to the south pole (bottom row). A tall, thin image with
+horizontal color variations therefore establishes latitudinal color bands on
+the sphere.
+.PP
+The initial fluid velocity at each point on the sphere is the sum of two sources:
+.IP 1. 4
+Multi-octave 3D simplex curl noise evaluated on the unit sphere and projected
+onto the local tangent plane, producing divergence-free whorls across a
+configurable range of spatial scales.
+.IP 2. 4
+Counter-rotating zonal velocity bands parallel to the equator with eastward
+speed
+.IR "u = A * sin(n * colatitude)" ,
+where
+.I colatitude
+runs from 0 at the north pole to pi at the south pole.
+.PP
+The fluid is evolved using the barotropic vorticity equation on an equiangular
+cubed-sphere grid with exact spherical Voronoi finite-volume operators, a
+multigrid-preconditioned conjugate gradient Poisson solver, and semi-Lagrangian
+great-circle advection (with Back-and-Forth Error Compensation and Conditioning,
+BFECC, enabled by default).
+.SH OPTIONS
+.SS "Input and Output Options"
+.TP
+.BR \-i ", " \-\-input =\fIFILE\fR
+Input PNG file used to color particles at their initial positions (required).
+.TP
+.BR \-o ", " \-\-outdir =\fIDIR\fR
+Directory where output images are written (default:
+.BR out ).
+Created automatically if it does not exist.
+.TP
+.BI \-\-prefix =P
+Filename prefix for output images (default:
+.BR gg ).
+.TP
+.BR \-\-layout = cross | gl
+Cubemap face naming and numbering convention (default:
+.BR cross ).
+See
+.B CUBEMAP LAYOUTS
+below.
+.TP
+.B \-\-sequence
+Write numbered frame files (e.g.,
+.IR gg-00050-0.png )
+instead of overwriting
+.IR gg0.png " .. " gg5.png
+at each output interval.
+.TP
+.B \-\-net
+Also write an assembled 4x3 unfolded cross-net PNG image
+.RI ( <prefix>-net.png )
+at each output step.
+.TP
+.B \-\-preview
+Also write a 2:1 equirectangular preview PNG image
+.RI ( <prefix>-preview.png )
+at each output step.
+.TP
+.BI \-\-res =R
+Width and height in pixels of each output cubemap face (default:
+.BR 1024 ).
+.TP
+.BR \-\-bg = transparent | \fIRRGGBB\fR
+Background behind fading particle trails (default:
+.BR transparent ).
+When set to
+.BR transparent ,
+outputs 4-channel RGBA PNGs with un-premultiplied colors. When set to a
+6-digit hexadecimal color (with or without a leading
+.RB ' # '),
+composites the trails over that solid color and writes 3-channel RGB PNGs.
+.SS "Fluid and Initial Condition Options"
+.TP
+.BI \-\-particles =M
+Number of tracer particles distributed over the sphere (default:
+.BR 1000000 ).
+.TP
+.BI \-\-grid =N
+Number of fluid grid cells along each edge of the 6 cubed-sphere faces, for a
+total of
+.I 6*N*N
+cells (default:
+.BR 256 ).
+Powers of two allow full geometric multigrid preconditioning.
+.TP
+.BI \-\-bands =n
+Number of counter-rotating latitudinal velocity bands from pole to pole
+(default:
+.BR 8 ).
+.TP
+.BI \-\-band\-amp =A
+Peak velocity magnitude of the zonal bands (default:
+.BR 1.0 ).
+.TP
+.BI \-\-noise\-amp =A
+Target root-mean-square (RMS) speed of the projected curl-noise velocity field
+(default:
+.BR 0.5 ).
+Because the field is RMS-normalized, changing scale or octave parameters does
+not alter the overall eddy kinetic energy.
+.TP
+.BI \-\-noise\-scale =s
+Base spatial frequency of the curl noise on the unit sphere (default:
+.BR 3.0 ).
+Smaller values produce fewer, larger planet-scale whorls; larger values produce
+smaller, tighter eddies.
+.TP
+.BI \-\-noise\-octaves =k
+Number of fractal curl-noise octaves summed into the initial velocity field
+(default:
+.BR 4 ;
+0 disables curl noise).
+.TP
+.BI \-\-noise\-lacunarity =l
+Frequency multiplier between successive curl-noise octaves (default:
+.BR 2.0 ).
+.TP
+.BI \-\-noise\-gain =g
+Amplitude weight multiplier between successive curl-noise octaves (default:
+.BR 0.5 ).
+.TP
+.BI \-\-forcing =k
+Relaxation rate (per unit simulation time) nudging the vorticity field back
+toward the initial zonal band vorticity profile (default:
+.BR 0 ,
+meaning free unforced evolution). Values around
+.B 0.1
+to
+.B 1.0
+prevent bands from gradually mixing away over long simulations.
+.TP
+.BI \-\-rotation =W
+Planetary angular velocity for the Coriolis force, advecting absolute vorticity
+.I omega + 2*W*sin(latitude)
+(default:
+.BR 0 ).
+Non-zero rotation promotes Rossby wave dynamics and persistent zonal jets.
+.TP
+.B \-\-no\-bfecc
+Disable Back-and-Forth Error Compensation and Conditioning and use single-pass
+semi-Lagrangian vorticity advection (faster, but more numerically diffusive).
+.SS "Time Integration and Solver Options"
+.TP
+.BI \-\-dt =T
+Fixed simulation time step. By default,
+.B gaseous-gusty-ball
+chooses the time step dynamically at each step from
+.B \-\-cfl
+and the maximum fluid speed.
+.TP
+.BI \-\-cfl =C
+Courant-Friedrichs-Lewy number used for automatic time stepping (default:
+.BR 1.0 ).
+.TP
+.BI \-\-steps =S
+Total number of simulation steps to run (default:
+.BR 2000 ).
+.TP
+.BI \-\-every =K
+Write output images every
+.I K
+simulation steps, and on the final step (default:
+.BR 50 ).
+.TP
+.BI \-\-cg\-tol =TOL
+Relative residual tolerance for the preconditioned conjugate gradient Poisson
+solver (default:
+.BR 1e-4 ).
+.TP
+.BI \-\-cg\-maxit =IT
+Maximum conjugate gradient iterations per step (default:
+.BR 500 ).
+.TP
+.BI \-\-seed =S
+Unsigned integer seed for the curl-noise permutation table (default:
+.BR 1 ).
+.TP
+.BI \-\-threads =T
+Number of OpenMP worker threads to use (default: all available logical cores).
+.SS "Trail Rendering Options"
+.TP
+.BI \-\-fade =f
+Fraction of existing trail opacity removed per simulation step, in the range
+[0, 1) (default:
+.BR 0.02 ).
+Smaller values produce longer, more persistent trails; larger values produce
+shorter trails.
+.TP
+.BI \-\-trail\-alpha =a
+Opacity of each individual particle splat deposit, in the range (0, 1]
+(default:
+.BR 0.35 ).
+.TP
+.BI \-\-splat\-radius =r
+Half-width of the tent-filter splat kernel in output face texels (default:
+.BR 1.0 ;
+clamped to at least 0.75).
+.SS "Help"
+.TP
+.BR \-h ", " \-\-help
+Print a summary of command-line options and exit.
+.SH CUBEMAP LAYOUTS
+The sphere uses a coordinate system with
+.B +Y
+at the north pole,
+.B \-Y
+at the south pole,
+.B +Z
+at longitude 0 on the equator, and
+.B +X
+at 90 degrees east.
+.SS "cross layout (default)"
+Writes six files named
+.IR <prefix>0.png " through " <prefix>5.png
+(or
+.IR <prefix>-NNNNN-0.png " .. " <prefix>-NNNNN-5.png
+with
+.BR \-\-sequence )
+arranged as an unfolded cube net viewed from outside the planet:
+.PP
+.nf
+          +------+
+          |  4   |
+          | (+Y) |
+   +------+------+------+------+
+   |  0   |  1   |  2   |  3   |
+   | (+Z) | (+X) | (\-Z) | (\-X) |
+   +------+------+------+------+
+          |  5   |
+          | (\-Y) |
+          +------+
+.fi
+.PP
+Faces 0, 1, 2, and 3 run eastward around the equator with north (+Y) pointing
+up. Face 4 is the north pole (its bottom edge joins the top edge of face 0) and
+face 5 is the south pole (its top edge joins the bottom edge of face 0).
+.SS "gl layout"
+Writes six files named
+.IR <prefix>-posx.png ,
+.IR <prefix>-negx.png ,
+.IR <prefix>-posy.png ,
+.IR <prefix>-negy.png ,
+.IR <prefix>-posz.png ,
+and
+.IR <prefix>-negz.png
+following the standard OpenGL cubemap face naming.
+.SH EXAMPLES
+Generate a set of 1024x1024 cubemap faces and an equirectangular preview from
+an input color strip, saving intermediate frames every 100 steps:
+.PP
+.nf
+    gaseous-gusty-ball \-i test/bands.png \-o out \-\-steps 1000 \-\-every 100 \\
+        \-\-sequence \-\-preview \-\-net
+.fi
+.PP
+Simulate a planet with 12 bands, larger initial vortices, persistent jet
+forcing, Coriolis rotation, and a dark solid background:
+.PP
+.nf
+    gaseous-gusty-ball \-i test/bands.png \-o out \-\-bands 12 \-\-noise\-scale 1.8 \\
+        \-\-forcing 0.3 \-\-rotation 10 \-\-bg 080810
+.fi
+.SH SEE ALSO
+.BR libpng (3)
